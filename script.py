@@ -6,7 +6,7 @@ import os
 import sys
 
 if len(sys.argv) < 2:
-    print("Usage: python script2.py <pdf file>")
+    print("Usage: python script.py <pdf file>")
     sys.exit(1)
     
 pdf_file = sys.argv[1]
