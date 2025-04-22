@@ -1,19 +1,94 @@
 
+from typing import List
 import pymupdf
 import time
 from deep_translator import GoogleTranslator
 import os
 import sys
+from enum import Enum
 
-if len(sys.argv) < 2:
-    print("Usage: python script.py <pdf file>")
-    sys.exit(1)
+class TextProcessingMode(Enum):
+    PARAGRAFO = "paragrafo"
+    QUEBRA_DE_LINHA = "quebra_de_linha"
+    QUEBRA_DE_LINHA_DINAMICO = "quebra_de_linha_dinamico"
+    TAMANHO = "tamanho"
+    TAMANHO_DINAMICO = "tamanho_dinamico_max"
+
+def quebraTexto(texto: str, splitCondition: TextProcessingMode = TextProcessingMode.PARAGRAFO, tamanho: int = 125)->List[str]:
+    if splitCondition == TextProcessingMode.PARAGRAFO:
+        retorno = texto.split(".\n")
+    elif splitCondition == TextProcessingMode.QUEBRA_DE_LINHA:
+        retorno = texto.split("\n")
+    elif splitCondition == TextProcessingMode.TAMANHO:
+        retorno = [texto[i:i+tamanho] for i in range(0, len(texto), tamanho)]
+    elif splitCondition == TextProcessingMode.TAMANHO_DINAMICO:
+        retorno = []
+        splited = texto.split(' ')
+        texto = ''
+        for i in range(len(splited)):
+            if len(texto+' '+splited[i]) > tamanho:                
+                retorno.append(texto)
+                texto = ''
+            texto += splited[i] + ' '
+        if texto:
+            retorno.append(texto)
+    elif splitCondition == TextProcessingMode.QUEBRA_DE_LINHA_DINAMICO:
+        retorno = []
+        splited = texto.split('\n')
+        texto = ''
+        for i in splited:
+            if len(texto+' '+i) > tamanho:
+                retorno.append(texto)
+                texto = ''
+            if texto:
+                texto += '\n'
+            texto += i
+        if texto:
+            retorno.append(texto)
+    else:
+        retorno = [texto]
+    return retorno
+
+def traduzirTextoGrande(texto: str,splitCondition: TextProcessingMode = TextProcessingMode.PARAGRAFO)->str:
+    retorno = ''
+    tamanho = 125
+    if splitCondition == TextProcessingMode.QUEBRA_DE_LINHA_DINAMICO:
+        tamanho = 3000
+    for textoQuebrado in quebraTexto(texto, splitCondition, tamanho):
+        if len(textoQuebrado) < 200:
+            retorno += to_portugues.translate(textoQuebrado)
+            retorno += "\n"
+        elif len(textoQuebrado) < 4000:
+            t = to_portugues.translate(textoQuebrado)
+            if t.count('\n') < 1:
+                s = quebraTexto(t, TextProcessingMode.TAMANHO_DINAMICO, 125)
+                for i in s:
+                    retorno += i+'\n'
+            else:
+                retorno += t + '\n'
+        elif splitCondition != TextProcessingMode.QUEBRA_DE_LINHA_DINAMICO and splitCondition != TextProcessingMode.QUEBRA_DE_LINHA:
+            retorno += traduzirTextoGrande(textoQuebrado, TextProcessingMode.QUEBRA_DE_LINHA_DINAMICO)
+        elif splitCondition != TextProcessingMode.QUEBRA_DE_LINHA:
+            retorno += traduzirTextoGrande(textoQuebrado, TextProcessingMode.QUEBRA_DE_LINHA)
+        else:
+            retorno += traduzirTextoGrande(textoQuebrado, TextProcessingMode.TAMANHO)
+        time.sleep(0.3)
+    return retorno
+
+# if len(sys.argv) < 2:
+#     print("Usage: python script.py <pdf file> [skipPages]")
+#     sys.exit(1)
     
-pdf_file = sys.argv[1]
+pdf_file = '.\EJ1149107_250326_172306 (1).pdf' #sys.argv[1]
 
 if not os.path.exists(pdf_file):    
     print(f"File {pdf_file} not found.")
     sys.exit(1)
+
+
+skipPages = 0
+if len(sys.argv) > 2:
+    skipPages = int(sys.argv[2])
 
 auxFileNames = pdf_file
 if auxFileNames.index("\\")>0 or auxFileNames.index("/")>0:
@@ -45,7 +120,6 @@ fileTxtpt = open(f"{auxFileNames}-pt.txt", "a", encoding='utf-8', errors='ignore
 ocg_xref = doc.add_ocg("Portuguese", on=True)
 
 countPages = 0
-skipPages = 0
 maxPages = 320
 # Iterate over all pages
 for page in doc:
@@ -67,15 +141,27 @@ for page in doc:
             bbox = block[:4]  # area containing the text
             
             text = block[4]  # the text of this block
-            try:
-
+            
+            # Check if the text is empty or contains only whitespace/newlines
+            if not text.strip():
                 fileTxten.write(text)
-                # Invoke the actual translation to deliver us a portugues string
-                portugues = to_portugues.translate(text)
-                if portugues:
-                    fileTxtpt.write(portugues + "\n")  # Adiciona a tradução seguida de uma nova linha
+                fileTxtpt.write(text)
+                continue
+            
+            try:
+                if len(text) < 200:
+                    fileTxten.write(text)
+                    # Invoke the actual translation to deliver us a portugues string
+                    portugues = to_portugues.translate(text)
+                    if portugues:
+                        fileTxtpt.write(portugues + "\n")  # Adiciona a tradução seguida de uma nova linha
+                    else:
+                        fileTxtpt.write("\n")  # Adiciona apenas uma linha em branco
                 else:
-                    fileTxtpt.write("\n")  # Adiciona apenas uma linha em branco
+                    fileTxten.write(text)
+                    portugues = traduzirTextoGrande(text)
+                    fileTxtpt.write(portugues)
+                    
 
                 # Cover the English text with a white rectangle.
                 page.draw_rect(bbox, color=None, fill=WHITE, oc=ocg_xref)
